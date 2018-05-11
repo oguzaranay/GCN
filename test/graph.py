@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 n_nodes_hl1 = 16
 n_nodes_hl2 = 20
 n_classes = 10  # each class holds the probability of being a sub-graph node
-batch_size = 1
+batch_size = 100
 tf.set_random_seed(123)
 
 # sess = tf.InteractiveSession()
@@ -25,9 +25,10 @@ def get_data(split='train'):
     adj = np.zeros((gsize, gsize)) # adjacency matrix
 
     if split == 'train':
-        sample_size = 12
+        sample_size = 1000
     else:
-        sample_size = 2
+        sample_size = 1
+        # true_label = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
 
     features = np.zeros((sample_size, gsize))
     labels = np.zeros((sample_size, gsize))
@@ -74,9 +75,11 @@ def get_data(split='train'):
         s2 = [e for e in true_label] # make a copy from the true label
         for j in idxs:
             s2[j] ^= 1 # flips 0 to 1 and 1 to 0
-            if j in true_idx:
+            # if j in true_idx:
                 # if node j belongs to true sub-graph then its feature is different
-                s1[j] = np.random.normal(mu2, sigma2)
+        for k in range(gsize):
+            if s2[k] == 1:
+                s1[k] = np.random.normal(mu2, sigma2)
 
         features[i] = s1
         labels[i] = s2
@@ -87,7 +90,7 @@ def get_data(split='train'):
     if split == 'train':
         return features, true_features, labels, true_label, adj, sample_size
     else:
-        return features, labels, sample_size
+        return true_features, true_label
 
 def f1_score(label,true_label):
     intersect = np.sum(np.min([label, true_label], axis=0))
@@ -102,10 +105,10 @@ def glorot(shape):
 
 def neural_network(features):
 
-    # hidden_layer_1 = {'weights':tf.Variable(tf.random_normal([10, n_nodes_hl1],dtype='float')),
-    #                   'biases':tf.Variable(tf.random_normal([n_nodes_hl1], dtype='float'))}
-    hidden_layer_1 = {'weights':glorot([10, n_nodes_hl1]),
-                      'biases':glorot([1, n_nodes_hl1])}
+    hidden_layer_1 = {'weights':tf.Variable(tf.random_normal([10, n_nodes_hl1],dtype='float32')),
+                      'biases':tf.Variable(tf.random_normal([n_nodes_hl1], dtype='float32'))}
+    # hidden_layer_1 = {'weights':glorot([10, n_nodes_hl1]),
+    #                   'biases':glorot([1, n_nodes_hl1])}
 
     # hidden_layer_2 = {'weights': tf.Variable(tf.random_normal([n_nodes_hl1, n_nodes_hl2])),
     #                   'biases': tf.Variable(tf.random_normal([n_nodes_hl2]))}
@@ -113,10 +116,10 @@ def neural_network(features):
     # output_layer = {'weights': tf.Variable(tf.random_normal([n_nodes_hl2,n_classes])),
     #                   'biases': tf.Variable(tf.random_normal([n_classes]))}
 
-    # output_layer = {'weights': tf.Variable(tf.random_normal([n_nodes_hl1, n_classes])),
-    #                 'biases': tf.Variable(tf.random_normal([n_classes]))}
-    output_layer = {'weights': glorot([n_nodes_hl1, n_classes]),
-                    'biases': glorot([1, n_classes])}
+    output_layer = {'weights': tf.Variable(tf.random_normal([n_nodes_hl1, n_classes])),
+                    'biases': tf.Variable(tf.random_normal([n_classes]))}
+    # output_layer = {'weights': glorot([n_nodes_hl1, n_classes]),
+    #                 'biases': glorot([1, n_classes])}
 
     l1 = tf.add(tf.matmul(features, hidden_layer_1['weights']), hidden_layer_1['biases'])
     l1 = tf.nn.relu(l1)
@@ -135,18 +138,27 @@ def get_batch(features, labels, offset):
     y = labels[offset:offset + batch_size, :]
     return x, y
 
+def project(input):
+    x = np.array(input)
+    output = [1 if item >= 0.5 else 0 for item in x]
+    return output
+
 def train(features, labels, sample_size):
 
-    x = tf.placeholder('float', [batch_size, n_classes])
-    y = tf.placeholder('float', [batch_size, n_classes])
-    prediction = neural_network(features)
-    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=prediction))
+    x = tf.placeholder('float32', [None, n_classes])
+    y = tf.placeholder('float32', [None, n_classes])
+    lr = 0.001
+    prediction = neural_network(x)
+    # prediction = project(prediction)
+    prediction2 = tf.nn.sigmoid(prediction)
+    cost = tf.reduce_mean(tf.metrics.mean_iou(labels=y, predictions=prediction, num_classes=10))
+    # cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=y, logits=prediction))
+    # cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=prediction))
     # cost = tf.reduce_mean(f1_score(np.array(prediction), np.array(labels)))
-    optimizer = tf.train.AdamOptimizer(learning_rate=0.001).minimize(cost)
+    optimizer = tf.train.AdamOptimizer(learning_rate=lr).minimize(cost)
 
-    epochs = 20
+    epochs = 100
     losses = []
-    out = []
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -157,14 +169,43 @@ def train(features, labels, sample_size):
                 x_input, y_label = get_batch(features, labels, i)
                 _, c = sess.run([optimizer, cost], feed_dict={x: x_input, y: y_label})
                 loss += c
-            loss /= epochs
+            loss /= (sample_size / batch_size)
             print('Epoch:', epoch, 'completed out of:', epochs, 'loss:', loss)
             losses.append(loss)
-    # plt.plot(losses)
-    # plt.xlabel('epochs')
-    # plt.ylabel('loss')
-    # plt.axis([0, epochs, 0, np.max(losses)])
-    # plt.show()
+        # sess.run(tf.global_variables_initializer())
+
+        x_test, gt = get_data(split='test')
+
+        correct = tf.equal(tf.round(prediction2), y)
+        accuracy = tf.reduce_mean(tf.cast(correct, 'float32'))
+
+        gt = np.array(gt).reshape([1, -1])
+        x_test = np.array(x_test).reshape([1, -1])
+        c_test, acc, pred = sess.run([cost, accuracy, prediction2], feed_dict={x: x_test, y: gt})
+        print('Net Accuracy: %.4f' % acc)
+        print('Test cost: %.4f' % c_test)
+        # prd = ["%.4f" % p for p in np.array(pred).reshape([1,-1])]
+        # print('Test predicted label:', pred)
+        # print('True label:', gt)
+        # xt = ["%.4f" % p for p in np.array(x_test)]
+        # print('Test feature:', x_test)
+
+    plt.plot(losses, 'r')
+    plt.grid(True)
+    plt.xlabel('epochs')
+    plt.ylabel('loss')
+    plt.legend(['loss'])
+    plt.title('Training Neural Network')
+    plt.text(epochs * .65, np.max(losses) * .9, '$H = 1$')
+    plt.text(epochs * .65, np.max(losses) * .85, '$C^{(1)} = $' + str(n_nodes_hl1))
+    plt.text(epochs * .65, np.max(losses) * .8, '$\eta = $' + str(lr))
+    plt.text(epochs * .65, np.max(losses) * .75, '$K = $' + str(sample_size))
+    plt.text(epochs * .65, np.max(losses) * .7, '$Net\ accuracy = $' + str(acc))
+    plt.text(epochs * .65, np.max(losses) * .65, '$Test\ cost = $' + str(c_test))
+    plt.text(epochs * .65, np.max(losses) * .6, '$w^{(0)},\ w^{(1)}=N(0,1)$')
+    plt.axis([0, epochs, 0, np.max(losses)])
+
+    plt.show()
 
 
 
@@ -188,5 +229,5 @@ features, true_features, labels, true_label, adj, sample_size = get_data(split='
 # true_label = tf.convert_to_tensor(true_label)
 
 train(features, labels, sample_size)
-x_test, y_test, sample_size = get_data(split='test')
-test(x_test, y_test)
+# x_test, y_test, sample_size = get_data(split='test')
+# test(x_test, y_test)
