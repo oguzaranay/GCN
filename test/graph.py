@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.linalg import inv
 import random
 import scipy.sparse as sp
 import tensorflow as tf
@@ -145,16 +146,16 @@ def project(input):
 
 def train(features, labels, sample_size):
 
-    x = tf.placeholder('float32', [None, n_classes])
-    y = tf.placeholder('float32', [None, n_classes])
+    x = tf.placeholder('float32', [None, n_classes], name='X')
+    y = tf.placeholder('float32', [None, n_classes], name='Y')
     lr = 0.001
-    prediction = neural_network(x)
+    raw_prediction = neural_network(x)
     # prediction = project(prediction)
-    prediction2 = tf.nn.sigmoid(prediction)
-    cost = tf.reduce_mean(tf.metrics.mean_iou(labels=y, predictions=prediction, num_classes=10))
+    prediction = tf.nn.sigmoid(raw_prediction, name='Prediction')
+    # cost = tf.metrics.mean_iou(labels=y, predictions=prediction, num_classes=10, name='Mean_IOU')
     # cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=y, logits=prediction))
-    # cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=prediction))
-    # cost = tf.reduce_mean(f1_score(np.array(prediction), np.array(labels)))
+    cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=prediction, name='Sigmoid'))
+    # cost = tf.reduce_mean(tf.metrics.precision(labels=y, predictions=prediction, name='F1_Score'))
     optimizer = tf.train.AdamOptimizer(learning_rate=lr).minimize(cost)
 
     epochs = 100
@@ -163,10 +164,12 @@ def train(features, labels, sample_size):
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
 
+        # start training
         for epoch in range(epochs):
             loss = 0
             for i in range(0, sample_size, batch_size):
                 x_input, y_label = get_batch(features, labels, i)
+                # sess.run(tf.local_variables_initializer())
                 _, c = sess.run([optimizer, cost], feed_dict={x: x_input, y: y_label})
                 loss += c
             loss /= (sample_size / batch_size)
@@ -174,21 +177,17 @@ def train(features, labels, sample_size):
             losses.append(loss)
         # sess.run(tf.global_variables_initializer())
 
+        # start testing
         x_test, gt = get_data(split='test')
 
-        correct = tf.equal(tf.round(prediction2), y)
+        correct = tf.equal(tf.round(prediction), y)
         accuracy = tf.reduce_mean(tf.cast(correct, 'float32'))
 
         gt = np.array(gt).reshape([1, -1])
         x_test = np.array(x_test).reshape([1, -1])
-        c_test, acc, pred = sess.run([cost, accuracy, prediction2], feed_dict={x: x_test, y: gt})
+        c_test, acc, pred = sess.run([cost, accuracy, prediction], feed_dict={x: x_test, y: gt})
         print('Net Accuracy: %.4f' % acc)
         print('Test cost: %.4f' % c_test)
-        # prd = ["%.4f" % p for p in np.array(pred).reshape([1,-1])]
-        # print('Test predicted label:', pred)
-        # print('True label:', gt)
-        # xt = ["%.4f" % p for p in np.array(x_test)]
-        # print('Test feature:', x_test)
 
     plt.plot(losses, 'r')
     plt.grid(True)
@@ -207,27 +206,25 @@ def train(features, labels, sample_size):
 
     plt.show()
 
+def preprocess_features(adj):
+    # Normalize adjacency matrix
+    # A_tilde
+    A_tilde = adj + np.eye(n_classes) # A = A + I
 
+    # D_tilde
+    D_tilde = np.sum(A_tilde, axis=0) # row sum
 
-def test(x_test, y_test):
+    # A_hat
+    D_inv_sqrt = np.power(D_tilde, -0.5)
+    D_inv_sqrt[np.isinf(D_inv_sqrt)] = 0.
+    D_mat_inv_sqrt = sp.diags(D_inv_sqrt).toarray()
 
-        y_pred = neural_network(x_test)
-        correct = tf.equal(tf.argmax(y_pred, 1), tf.argmax(y_test, 1))
-        accuracy = tf.reduce_mean(tf.cast(correct, 'float'))
-
-        with tf.Session() as sess:
-            sess.run(tf.global_variables_initializer())
-
-            _, cost = sess.run([y_pred, accuracy])
-            print('Net Accuracy:', accuracy.eval())
-            print('Test cost:', cost)
-
+    return
 
 features, true_features, labels, true_label, adj, sample_size = get_data(split='train')
 # features = tf.convert_to_tensor(features,dtype='float')
 # labels = tf.convert_to_tensor(labels, dtype='float')
 # true_label = tf.convert_to_tensor(true_label)
 
+A_hat = preprocess_features(adj)
 train(features, labels, sample_size)
-# x_test, y_test, sample_size = get_data(split='test')
-# test(x_test, y_test)
