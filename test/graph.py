@@ -27,8 +27,11 @@ def preprocess_features(adj):
     D_inv_sqrt = np.power(D_tilde, -0.5)
     D_inv_sqrt[np.isinf(D_inv_sqrt)] = 0.
     D_mat_inv_sqrt = sp.diags(D_inv_sqrt).toarray()
-    x = D_mat_inv_sqrt * D_mat_inv_sqrt * A_tilde
+    # x1 = D_mat_inv_sqrt * D_mat_inv_sqrt * A_tilde
+    x = np.matmul(np.matmul(D_mat_inv_sqrt, A_tilde), D_mat_inv_sqrt)
 
+    # print(x1)
+    # print(x)
     return x
 
 
@@ -51,7 +54,7 @@ def get_data(split='train'):
 
     features = np.zeros((sample_size, gsize))
     labels = np.zeros((sample_size, gsize))
-    true_label = [0, 1, 1, 1, 1, 0, 0, 0, 0, 0]
+    true_label = [0, 1, 0, 0, 1, 1, 0, 0, 0, 0]
 
     true_features = np.zeros(gsize, dtype='float64')
     for i in range(gsize):
@@ -195,7 +198,7 @@ def train(features, adj, labels, sample_size):
     prediction = tf.nn.sigmoid(raw_prediction, name='Prediction')
     # cost = tf.metrics.mean_iou(labels=y, predictions=prediction, num_classes=10, name='Mean_IOU')
     # cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=y, logits=prediction))
-    cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=prediction, name='Sigmoid'))
+    cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=raw_prediction, name='Sigmoid'))
     # cost = tf.reduce_mean(tf.metrics.precision(labels=y, predictions=prediction, name='F1_Score'))
     optimizer = tf.train.AdamOptimizer(learning_rate=lr).minimize(cost)
 
@@ -239,14 +242,14 @@ def train(features, adj, labels, sample_size):
     plt.ylabel('loss')
     plt.legend(['loss'])
     plt.title('Training Neural Network')
-    plt.text(epochs * .65, np.max(losses) * .9, '$H = 1$')
-    plt.text(epochs * .65, np.max(losses) * .85, '$C^{(1)} = $' + str(n_nodes_hl1))
-    plt.text(epochs * .65, np.max(losses) * .8, '$\eta = $' + str(lr))
-    plt.text(epochs * .65, np.max(losses) * .75, '$K = $' + str(sample_size))
-    plt.text(epochs * .65, np.max(losses) * .7, '$Net\ accuracy = $' + str(acc))
-    plt.text(epochs * .65, np.max(losses) * .65, '$Test\ cost = $' + str(c_test))
-    plt.text(epochs * .65, np.max(losses) * .6, '$w^{(0)},\ w^{(1)}=N(0,1)$')
-    plt.axis([0, epochs, 0, np.max(losses)])
+    plt.text(epochs * .5, np.max(losses) * .5, '$H = 1$')
+    plt.text(epochs * .5, np.max(losses) * .45, '$C^{(1)} = $' + str(n_nodes_hl1))
+    plt.text(epochs * .5, np.max(losses) * .4, '$\eta = $' + str(lr))
+    plt.text(epochs * .5, np.max(losses) * .35, '$K = $' + str(sample_size))
+    plt.text(epochs * .5, np.max(losses) * .3, '$Net\ accuracy = $' + str(acc))
+    plt.text(epochs * .5, np.max(losses) * .25, '$Test\ cost = $' + str(np.round(c_test, 4)))
+    plt.text(epochs * .5, np.max(losses) * .2, '$w^{(0)},\ w^{(1)}=N(0,1)$')
+    plt.axis([0, epochs - 1, 0, np.max(losses)])
 
     plt.show()
 
