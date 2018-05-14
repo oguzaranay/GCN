@@ -9,10 +9,28 @@ import matplotlib.pyplot as plt
 n_nodes_hl1 = 16
 n_nodes_hl2 = 20
 n_classes = 10  # each class holds the probability of being a sub-graph node
-batch_size = 100
+batch_size = 1
 tf.set_random_seed(123)
 
 # sess = tf.InteractiveSession()
+
+
+def preprocess_features(adj):
+    # Normalize adjacency matrix
+    # A_tilde
+    A_tilde = adj + np.eye(n_classes) # A = A + I
+
+    # D_tilde
+    D_tilde = np.sum(A_tilde, axis=0) # row sum
+
+    # A_hat
+    D_inv_sqrt = np.power(D_tilde, -0.5)
+    D_inv_sqrt[np.isinf(D_inv_sqrt)] = 0.
+    D_mat_inv_sqrt = sp.diags(D_inv_sqrt).toarray()
+    x = D_mat_inv_sqrt * D_mat_inv_sqrt * A_tilde
+
+    return x
+
 
 def get_data(split='train'):
     assert split in ['train', 'test']
@@ -33,9 +51,16 @@ def get_data(split='train'):
 
     features = np.zeros((sample_size, gsize))
     labels = np.zeros((sample_size, gsize))
-    true_label = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
-    true_features = np.random.normal(mu1, sigma1, 5)
-    true_features = np.append(true_features, np.random.normal(mu2, sigma2, 5))
+    true_label = [0, 1, 1, 1, 1, 0, 0, 0, 0, 0]
+
+    true_features = np.zeros(gsize, dtype='float64')
+    for i in range(gsize):
+        if true_label[i] == 0:
+            true_features[i] = np.random.normal(mu1, sigma1)
+        else:
+            true_features[i] = np.random.normal(mu2, sigma2)
+    # true_features = np.random.normal(mu1, sigma1, 5)
+    # true_features = np.append(true_features, np.random.normal(mu2, sigma2, 5))
 
     true_idx = []
     for i in range(len(true_label)):
@@ -88,6 +113,8 @@ def get_data(split='train'):
     features = np.array(features, dtype=np.float32)
     labels = np.array(labels, dtype=np.float32)
 
+    # x = preprocess_features(features, adj)
+
     if split == 'train':
         return features, true_features, labels, true_label, adj, sample_size
     else:
@@ -104,10 +131,16 @@ def glorot(shape):
     initial = tf.random_uniform(shape, minval=-init_range, maxval=init_range, dtype=tf.float32)
     return tf.Variable(initial)
 
+# def multiply(adj, x):
+#     # print(x[1])
+#     out = np.zeros((10, 10), dtype=float)
+#     for idx in range(10):
+#         out[idx] = np.dot(adj, x[idx])
+
 def neural_network(features):
 
-    hidden_layer_1 = {'weights':tf.Variable(tf.random_normal([10, n_nodes_hl1],dtype='float32')),
-                      'biases':tf.Variable(tf.random_normal([n_nodes_hl1], dtype='float32'))}
+    hidden_layer_1 = {'weights':tf.Variable(tf.random_normal([1, n_nodes_hl1], dtype='float64')),
+                      'biases':tf.Variable(tf.random_normal([n_nodes_hl1], dtype='float64'))}
     # hidden_layer_1 = {'weights':glorot([10, n_nodes_hl1]),
     #                   'biases':glorot([1, n_nodes_hl1])}
 
@@ -117,19 +150,26 @@ def neural_network(features):
     # output_layer = {'weights': tf.Variable(tf.random_normal([n_nodes_hl2,n_classes])),
     #                   'biases': tf.Variable(tf.random_normal([n_classes]))}
 
-    output_layer = {'weights': tf.Variable(tf.random_normal([n_nodes_hl1, n_classes])),
-                    'biases': tf.Variable(tf.random_normal([n_classes]))}
+    output_layer = {'weights': tf.Variable(tf.random_normal([n_nodes_hl1, 1], dtype='float64')),
+                    'biases': tf.Variable(tf.random_normal([n_classes, 1], dtype='float64'))}
     # output_layer = {'weights': glorot([n_nodes_hl1, n_classes]),
     #                 'biases': glorot([1, n_classes])}
 
+    # X = tilde(A) * features
+    A_hat = preprocess_features(adj)
+
+    # multiply features \in R^{sample_size x n} by normalized adj \in R^{n x n} = features \in R^{sample_size x n}
+    features = tf.matmul(A_hat, features) # nx1
+
     l1 = tf.add(tf.matmul(features, hidden_layer_1['weights']), hidden_layer_1['biases'])
-    l1 = tf.nn.relu(l1)
+    l1 = tf.nn.relu(l1) # 10x16
 
     # l2 = tf.add(tf.matmul(l1, hidden_layer_2['weights']), hidden_layer_2['biases'])
     # l2 = tf.nn.relu(l2)
     #
     # output = tf.add(tf.matmul(l2, output_layer['weights']), output_layer['biases'])
 
+    l1 = tf.matmul(A_hat, l1) # 10x16
     output = tf.add(tf.matmul(l1, output_layer['weights']), output_layer['biases'])
 
     return output
@@ -144,10 +184,11 @@ def project(input):
     output = [1 if item >= 0.5 else 0 for item in x]
     return output
 
-def train(features, labels, sample_size):
+def train(features, adj, labels, sample_size):
 
-    x = tf.placeholder('float32', [None, n_classes], name='X')
-    y = tf.placeholder('float32', [None, n_classes], name='Y')
+    x = tf.placeholder('float64', [n_classes, 1], name='X')
+    y = tf.placeholder('float64', [n_classes, 1], name='Y')
+
     lr = 0.001
     raw_prediction = neural_network(x)
     # prediction = project(prediction)
@@ -158,7 +199,7 @@ def train(features, labels, sample_size):
     # cost = tf.reduce_mean(tf.metrics.precision(labels=y, predictions=prediction, name='F1_Score'))
     optimizer = tf.train.AdamOptimizer(learning_rate=lr).minimize(cost)
 
-    epochs = 100
+    epochs = 10
     losses = []
 
     with tf.Session() as sess:
@@ -170,7 +211,7 @@ def train(features, labels, sample_size):
             for i in range(0, sample_size, batch_size):
                 x_input, y_label = get_batch(features, labels, i)
                 # sess.run(tf.local_variables_initializer())
-                _, c = sess.run([optimizer, cost], feed_dict={x: x_input, y: y_label})
+                _, c = sess.run([optimizer, cost], feed_dict={x: x_input.reshape([n_classes, 1]), y: y_label.reshape([n_classes, 1])})
                 loss += c
             loss /= (sample_size / batch_size)
             print('Epoch:', epoch, 'completed out of:', epochs, 'loss:', loss)
@@ -185,9 +226,12 @@ def train(features, labels, sample_size):
 
         gt = np.array(gt).reshape([1, -1])
         x_test = np.array(x_test).reshape([1, -1])
-        c_test, acc, pred = sess.run([cost, accuracy, prediction], feed_dict={x: x_test, y: gt})
+        c_test, acc, pred = sess.run([cost, accuracy, prediction], feed_dict={x: x_test.reshape([n_classes, 1]), y: gt.reshape([n_classes, 1])})
         print('Net Accuracy: %.4f' % acc)
         print('Test cost: %.4f' % c_test)
+        print('Test input:', np.round(x_test, 3))
+        print('Predicted label:', np.round(pred.reshape([1, n_classes])))
+        print('Ground truth label:', gt)
 
     plt.plot(losses, 'r')
     plt.grid(True)
@@ -206,25 +250,9 @@ def train(features, labels, sample_size):
 
     plt.show()
 
-def preprocess_features(adj):
-    # Normalize adjacency matrix
-    # A_tilde
-    A_tilde = adj + np.eye(n_classes) # A = A + I
-
-    # D_tilde
-    D_tilde = np.sum(A_tilde, axis=0) # row sum
-
-    # A_hat
-    D_inv_sqrt = np.power(D_tilde, -0.5)
-    D_inv_sqrt[np.isinf(D_inv_sqrt)] = 0.
-    D_mat_inv_sqrt = sp.diags(D_inv_sqrt).toarray()
-
-    return
-
 features, true_features, labels, true_label, adj, sample_size = get_data(split='train')
 # features = tf.convert_to_tensor(features,dtype='float')
 # labels = tf.convert_to_tensor(labels, dtype='float')
 # true_label = tf.convert_to_tensor(true_label)
 
-A_hat = preprocess_features(adj)
-train(features, labels, sample_size)
+train(features, adj, labels, sample_size)
