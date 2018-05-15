@@ -54,7 +54,7 @@ def get_data(split='train'):
 
     features = np.zeros((sample_size, gsize))
     labels = np.zeros((sample_size, gsize))
-    true_label = [0, 1, 0, 0, 1, 1, 0, 0, 0, 0]
+    true_label = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
 
     true_features = np.zeros(gsize, dtype='float64')
     for i in range(gsize):
@@ -233,7 +233,7 @@ def train(features, adj, labels, sample_size):
         print('Net Accuracy: %.4f' % acc)
         print('Test cost: %.4f' % c_test)
         print('Test input:', np.round(x_test, 3))
-        print('Predicted label:', np.round(pred.reshape([1, n_classes])))
+        print('Predicted label   :', np.round(pred.reshape([1, n_classes])).astype(int))
         print('Ground truth label:', gt)
 
     plt.plot(losses, 'r')
